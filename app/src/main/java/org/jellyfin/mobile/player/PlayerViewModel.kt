@@ -53,6 +53,7 @@ import org.jellyfin.mobile.player.ui.PlayState
 import org.jellyfin.mobile.player.ui.playermenuhelper.PlayerMenuHelper
 import org.jellyfin.mobile.utils.Constants
 import org.jellyfin.mobile.utils.Constants.SUPPORTED_VIDEO_PLAYER_PLAYBACK_ACTIONS
+import org.jellyfin.mobile.utils.DuckingAudioFocus
 import org.jellyfin.mobile.utils.applyDefaultAudioAttributes
 import org.jellyfin.mobile.utils.applyDefaultLocalAudioAttributes
 import org.jellyfin.mobile.utils.extensions.end
@@ -104,6 +105,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
 
     private val appPreferences: AppPreferences by inject()
     private val lifecycleObserver = PlayerLifecycleObserver(this)
+    private var duckingAudioFocus: DuckingAudioFocus? = null
+
     private val audioManager: AudioManager by lazy { getApplication<Application>().getSystemService()!! }
     val notificationHelper: PlayerNotificationHelper by lazy { PlayerNotificationHelper(this) }
 
@@ -283,6 +286,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
         }.build().apply {
             addListener(this@PlayerViewModel)
             applyDefaultAudioAttributes(C.AUDIO_CONTENT_TYPE_MOVIE)
+            duckingAudioFocus = DuckingAudioFocus(getApplication(), this)
         }
     }
 
@@ -293,6 +297,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
         notificationHelper.dismissNotification()
         mediaSession.isActive = false
         mediaSession.release()
+        duckingAudioFocus?.release()
+        duckingAudioFocus = null
         playerOrNull?.run {
             removeListener(this@PlayerViewModel)
             release()
