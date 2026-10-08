@@ -67,6 +67,7 @@ android {
 
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.findByName("release")
+            applicationIdSuffix = ".nofocus"
         }
 
         getByName("debug") {
