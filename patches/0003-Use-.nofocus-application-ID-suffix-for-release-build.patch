@@ -1,0 +1,24 @@
+From 2d94d366de8f518521775b6b1d7632a07ed2f448 Mon Sep 17 00:00:00 2001
+From: Papa Casper <papacasper@users.noreply.github.com>
+Date: Thu, 8 Oct 2026 18:21:46 -0500
+Subject: [PATCH 3/3] Use .nofocus application ID suffix for release builds too
+
+---
+ app/build.gradle.kts | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index df792881..2d388b31 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -67,6 +67,7 @@ android {
+ 
+             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+             signingConfig = signingConfigs.findByName("release")
++            applicationIdSuffix = ".nofocus"
+         }
+ 
+         getByName("debug") {
+-- 
+2.55.0
+

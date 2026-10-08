@@ -74,21 +74,24 @@ jobs:
       - name: Restore signing key
         if: steps.tag.outputs.needed == 'true'
         env:
-          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
-        run: |
-          mkdir -p ~/.android
-          echo "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+          RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+        run: echo "$RELEASE_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
 
-      - name: Build APK
+      - name: Build release APK
         if: steps.tag.outputs.needed == 'true'
         working-directory: ../upstream
-        run: ./gradlew --no-daemon :app:assembleProprietaryDebug -Pjellyfin.version=${{ steps.tag.outputs.tag }}
+        env:
+          KEYSTORE_FILE: ${{ runner.temp }}/release.jks
+          KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: nofocus
+          SIGNING_KEY_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+        run: ./gradlew --no-daemon :app:assembleProprietaryRelease -Pjellyfin.version=${{ steps.tag.outputs.tag }}
 
       - name: Publish release
         if: steps.tag.outputs.needed == 'true'
         run: |
           tag="${{ steps.tag.outputs.tag }}"
-          apk=$(ls ../upstream/app/build/outputs/apk/proprietary/debug/*.apk | head -1)
+          apk=$(ls ../upstream/app/build/outputs/apk/proprietary/release/*.apk | head -1)
           cp "$apk" "jellyfin-nofocus-$tag.apk"
           gh release create "nofocus-$tag" "jellyfin-nofocus-$tag.apk" \
             --title "Jellyfin $tag (nofocus)" \
