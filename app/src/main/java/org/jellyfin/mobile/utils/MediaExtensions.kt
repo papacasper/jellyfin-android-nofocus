@@ -78,14 +78,15 @@ fun AudioManager.getVolumeLevelPercent(): Int {
 }
 
 /**
- * Configure [Media3AudioAttributes] to handle audio focus
+ * Configure [Media3AudioAttributes]. Audio focus handling is disabled (custom build) so playback
+ * continues during phone calls like other apps that ignore transient focus loss.
  */
 inline fun Player.applyDefaultAudioAttributes(@C.AudioContentType contentType: Int) {
     val audioAttributes = Media3AudioAttributes.Builder()
         .setUsage(C.USAGE_MEDIA)
         .setContentType(contentType)
         .build()
-    setAudioAttributes(audioAttributes, true)
+    setAudioAttributes(audioAttributes, false)
 }
 
 fun Player.seekToOffset(offsetMs: Long) {

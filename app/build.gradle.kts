@@ -70,7 +70,7 @@ android {
         }
 
         getByName("debug") {
-            applicationIdSuffix = ".debug"
+            applicationIdSuffix = ".nofocus"
             isDebuggable = true
         }
     }
