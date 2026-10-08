@@ -1,0 +1,52 @@
+From 4fd1e0292b2035f3287d9edf7a475993f4b844cb Mon Sep 17 00:00:00 2001
+From: Papa Casper <papacasper@users.noreply.github.com>
+Date: Thu, 8 Oct 2026 18:03:51 -0500
+Subject: [PATCH 1/2] Disable ExoPlayer audio focus handling; install as
+ .nofocus
+
+Playback no longer pauses on transient audio focus loss (e.g. phone calls),
+matching apps like TikTok. Debug build uses applicationIdSuffix .nofocus so it
+installs alongside the stock app. Based on upstream v2.7.3.
+---
+ app/build.gradle.kts                                         | 2 +-
+ .../main/java/org/jellyfin/mobile/utils/MediaExtensions.kt   | 5 +++--
+ 2 files changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 396dbe27..df792881 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -70,7 +70,7 @@ android {
+         }
+ 
+         getByName("debug") {
+-            applicationIdSuffix = ".debug"
++            applicationIdSuffix = ".nofocus"
+             isDebuggable = true
+         }
+     }
+diff --git a/app/src/main/java/org/jellyfin/mobile/utils/MediaExtensions.kt b/app/src/main/java/org/jellyfin/mobile/utils/MediaExtensions.kt
+index bcc2c417..effff90b 100644
+--- a/app/src/main/java/org/jellyfin/mobile/utils/MediaExtensions.kt
++++ b/app/src/main/java/org/jellyfin/mobile/utils/MediaExtensions.kt
+@@ -78,14 +78,15 @@ fun AudioManager.getVolumeLevelPercent(): Int {
+ }
+ 
+ /**
+- * Configure [Media3AudioAttributes] to handle audio focus
++ * Configure [Media3AudioAttributes]. Audio focus handling is disabled (custom build) so playback
++ * continues during phone calls like other apps that ignore transient focus loss.
+  */
+ inline fun Player.applyDefaultAudioAttributes(@C.AudioContentType contentType: Int) {
+     val audioAttributes = Media3AudioAttributes.Builder()
+         .setUsage(C.USAGE_MEDIA)
+         .setContentType(contentType)
+         .build()
+-    setAudioAttributes(audioAttributes, true)
++    setAudioAttributes(audioAttributes, false)
+ }
+ 
+ fun Player.seekToOffset(offsetMs: Long) {
+-- 
+2.55.0
+

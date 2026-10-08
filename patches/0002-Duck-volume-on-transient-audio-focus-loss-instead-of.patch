@@ -1,0 +1,147 @@
+From 5dde2c3b31a166e7d7aa3dcf6fa58d493720acad Mon Sep 17 00:00:00 2001
+From: Papa Casper <papacasper@users.noreply.github.com>
+Date: Thu, 8 Oct 2026 18:09:05 -0500
+Subject: [PATCH 2/2] Duck volume on transient audio focus loss instead of
+ ignoring focus
+
+Adds DuckingAudioFocus: requests focus on play, lowers volume to 25% on
+transient loss (e.g. phone call), restores on gain, pauses on permanent loss.
+---
+ .../jellyfin/mobile/player/PlayerViewModel.kt |  6 ++
+ .../mobile/utils/DuckingAudioFocus.kt         | 86 +++++++++++++++++++
+ 2 files changed, 92 insertions(+)
+ create mode 100644 app/src/main/java/org/jellyfin/mobile/utils/DuckingAudioFocus.kt
+
+diff --git a/app/src/main/java/org/jellyfin/mobile/player/PlayerViewModel.kt b/app/src/main/java/org/jellyfin/mobile/player/PlayerViewModel.kt
+index 0083d486..1c5bcbe4 100644
+--- a/app/src/main/java/org/jellyfin/mobile/player/PlayerViewModel.kt
++++ b/app/src/main/java/org/jellyfin/mobile/player/PlayerViewModel.kt
+@@ -53,6 +53,7 @@ import org.jellyfin.mobile.player.ui.PlayState
+ import org.jellyfin.mobile.player.ui.playermenuhelper.PlayerMenuHelper
+ import org.jellyfin.mobile.utils.Constants
+ import org.jellyfin.mobile.utils.Constants.SUPPORTED_VIDEO_PLAYER_PLAYBACK_ACTIONS
++import org.jellyfin.mobile.utils.DuckingAudioFocus
+ import org.jellyfin.mobile.utils.applyDefaultAudioAttributes
+ import org.jellyfin.mobile.utils.applyDefaultLocalAudioAttributes
+ import org.jellyfin.mobile.utils.extensions.end
+@@ -104,6 +105,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
+ 
+     private val appPreferences: AppPreferences by inject()
+     private val lifecycleObserver = PlayerLifecycleObserver(this)
++    private var duckingAudioFocus: DuckingAudioFocus? = null
++
+     private val audioManager: AudioManager by lazy { getApplication<Application>().getSystemService()!! }
+     val notificationHelper: PlayerNotificationHelper by lazy { PlayerNotificationHelper(this) }
+ 
+@@ -283,6 +286,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
+         }.build().apply {
+             addListener(this@PlayerViewModel)
+             applyDefaultAudioAttributes(C.AUDIO_CONTENT_TYPE_MOVIE)
++            duckingAudioFocus = DuckingAudioFocus(getApplication(), this)
+         }
+     }
+ 
+@@ -293,6 +297,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
+         notificationHelper.dismissNotification()
+         mediaSession.isActive = false
+         mediaSession.release()
++        duckingAudioFocus?.release()
++        duckingAudioFocus = null
+         playerOrNull?.run {
+             removeListener(this@PlayerViewModel)
+             release()
+diff --git a/app/src/main/java/org/jellyfin/mobile/utils/DuckingAudioFocus.kt b/app/src/main/java/org/jellyfin/mobile/utils/DuckingAudioFocus.kt
+new file mode 100644
+index 00000000..23ae16e4
+--- /dev/null
++++ b/app/src/main/java/org/jellyfin/mobile/utils/DuckingAudioFocus.kt
+@@ -0,0 +1,86 @@
++package org.jellyfin.mobile.utils
++
++import android.content.Context
++import android.media.AudioAttributes
++import android.media.AudioFocusRequest
++import android.media.AudioManager
++import android.os.Build
++import androidx.core.content.getSystemService
++import androidx.media3.common.Player
++
++/**
++ * Custom audio focus handling: instead of pausing on a transient focus loss (e.g. a phone call),
++ * keep playing at a reduced volume and restore it when focus returns.
++ * A permanent focus loss still pauses playback.
++ */
++class DuckingAudioFocus(
++    context: Context,
++    private val player: Player,
++) : AudioManager.OnAudioFocusChangeListener, Player.Listener {
++    private val audioManager: AudioManager = context.getSystemService()!!
++
++    private var focusRequest: AudioFocusRequest? = null
++
++    init {
++        player.addListener(this)
++        if (player.playWhenReady) requestFocus()
++    }
++
++    override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
++        if (playWhenReady) requestFocus() else abandonFocus()
++    }
++
++    override fun onAudioFocusChange(focusChange: Int) {
++        when (focusChange) {
++            AudioManager.AUDIOFOCUS_GAIN -> player.volume = 1f
++            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
++            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK,
++            -> player.volume = DUCKED_VOLUME
++            AudioManager.AUDIOFOCUS_LOSS -> {
++                player.volume = 1f
++                player.pause()
++            }
++        }
++    }
++
++    private fun requestFocus() {
++        val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
++            val request = focusRequest ?: AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
++                .setAudioAttributes(
++                    AudioAttributes.Builder()
++                        .setUsage(AudioAttributes.USAGE_MEDIA)
++                        .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
++                        .build(),
++                )
++                .setOnAudioFocusChangeListener(this)
++                .setWillPauseWhenDucked(false)
++                .build()
++                .also { focusRequest = it }
++            audioManager.requestAudioFocus(request)
++        } else {
++            @Suppress("DEPRECATION")
++            audioManager.requestAudioFocus(this, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
++        }
++        // Focus is held by someone else (e.g. a call in progress): play anyway, but quietly
++        player.volume = if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) 1f else DUCKED_VOLUME
++    }
++
++    private fun abandonFocus() {
++        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
++            focusRequest?.let(audioManager::abandonAudioFocusRequest)
++        } else {
++            @Suppress("DEPRECATION")
++            audioManager.abandonAudioFocus(this)
++        }
++        player.volume = 1f
++    }
++
++    fun release() {
++        player.removeListener(this)
++        abandonFocus()
++    }
++
++    private companion object {
++        const val DUCKED_VOLUME = 0.25f
++    }
++}
+-- 
+2.55.0
+

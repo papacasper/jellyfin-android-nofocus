@@ -1,0 +1,95 @@
+name: Sync upstream and build
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Upstream tag to build (default: newest stable)"
+        required: false
+
+permissions:
+  contents: write
+  issues: write
+
+env:
+  UPSTREAM: https://github.com/jellyfin/jellyfin-android.git
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  sync-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find upstream tag
+        id: tag
+        run: |
+          tag="${{ inputs.tag }}"
+          if [ -z "$tag" ]; then
+            tag=$(git ls-remote --tags --refs "$UPSTREAM" 'v*' | sed 's|.*refs/tags/||' \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          fi
+          [ -n "$tag" ] || { echo "no upstream tag found"; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh release view "nofocus-$tag" >/dev/null 2>&1; then
+            echo "Release nofocus-$tag already exists"
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply patches to upstream
+        if: steps.tag.outputs.needed == 'true'
+        id: apply
+        run: |
+          git clone --depth 1 --branch "${{ steps.tag.outputs.tag }}" "$UPSTREAM" ../upstream
+          cd ../upstream
+          git config user.name "nofocus-bot"
+          git config user.email "nofocus-bot@users.noreply.github.com"
+          if ! git am --3way "$GITHUB_WORKSPACE"/patches/*.patch; then
+            git am --abort || true
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+      - name: Report patch failure
+        if: failure() && steps.apply.outputs.failed == 'true'
+        run: |
+          title="Patches no longer apply to ${{ steps.tag.outputs.tag }}"
+          if [ -z "$(gh issue list --state open --search "$title in:title" --json number -q '.[0].number')" ]; then
+            gh issue create --title "$title" --body "The scheduled sync could not apply \`patches/\` to upstream ${{ steps.tag.outputs.tag }}. Update the patches and push to main. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
+
+      - uses: actions/setup-java@v4
+        if: steps.tag.outputs.needed == 'true'
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        if: steps.tag.outputs.needed == 'true'
+
+      - name: Restore signing key
+        if: steps.tag.outputs.needed == 'true'
+        env:
+          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          mkdir -p ~/.android
+          echo "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+
+      - name: Build APK
+        if: steps.tag.outputs.needed == 'true'
+        working-directory: ../upstream
+        run: ./gradlew --no-daemon :app:assembleProprietaryDebug -Pjellyfin.version=${{ steps.tag.outputs.tag }}
+
+      - name: Publish release
+        if: steps.tag.outputs.needed == 'true'
+        run: |
+          tag="${{ steps.tag.outputs.tag }}"
+          apk=$(ls ../upstream/app/build/outputs/apk/proprietary/debug/*.apk | head -1)
+          cp "$apk" "jellyfin-nofocus-$tag.apk"
+          gh release create "nofocus-$tag" "jellyfin-nofocus-$tag.apk" \
+            --title "Jellyfin $tag (nofocus)" \
+            --notes "Upstream jellyfin-android $tag with video audio focus ducking during calls. Installs as org.jellyfin.mobile.nofocus."
