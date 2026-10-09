@@ -1,0 +1,157 @@
+From 01de9830113356deefc5303491186f068d4119b3 Mon Sep 17 00:00:00 2001
+From: Papa Casper <papacasper@users.noreply.github.com>
+Date: Fri, 9 Oct 2026 08:06:00 -0500
+Subject: [PATCH 4/4] Keep full volume during calls; volume keys adjust media
+ volume with system UI
+
+---
+ .../java/org/jellyfin/mobile/MainActivity.kt  | 20 +++++++++
+ .../mobile/utils/DuckingAudioFocus.kt         | 45 +++++++++++++++----
+ 2 files changed, 57 insertions(+), 8 deletions(-)
+
+diff --git a/app/src/main/java/org/jellyfin/mobile/MainActivity.kt b/app/src/main/java/org/jellyfin/mobile/MainActivity.kt
+index e655ecb4..672e17ae 100644
+--- a/app/src/main/java/org/jellyfin/mobile/MainActivity.kt
++++ b/app/src/main/java/org/jellyfin/mobile/MainActivity.kt
+@@ -5,9 +5,11 @@ import android.content.ComponentName
+ import android.content.Intent
+ import android.content.ServiceConnection
+ import android.graphics.Color
++import android.media.AudioManager
+ import android.os.Bundle
+ import android.os.IBinder
+ import android.provider.Settings
++import android.view.KeyEvent
+ import android.view.OrientationEventListener
+ import android.widget.Toast
+ import androidx.activity.OnBackPressedCallback
+@@ -16,6 +18,7 @@ import androidx.activity.addCallback
+ import androidx.activity.enableEdgeToEdge
+ import androidx.appcompat.app.AlertDialog
+ import androidx.appcompat.app.AppCompatActivity
++import androidx.core.content.getSystemService
+ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+ import androidx.fragment.app.Fragment
+ import androidx.lifecycle.lifecycleScope
+@@ -94,6 +97,23 @@ class MainActivity : AppCompatActivity() {
+         isEnabled = true // re-enable callback in case activity isn't finished
+     }
+ 
++    /**
++     * During a phone call the volume keys would change the call volume, so while the player is open they
++     * change the media volume instead (with the system volume UI), which is what playback uses.
++     */
++    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
++        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
++            val playerOpen = supportFragmentManager.findFragmentById(R.id.fragment_container) is PlayerFragment
++            val audioManager: AudioManager = getSystemService()!!
++            if (playerOpen && audioManager.mode == AudioManager.MODE_IN_CALL) {
++                val direction = if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
++                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
++                return true
++            }
++        }
++        return super.onKeyDown(keyCode, event)
++    }
++
+     override fun onCreate(savedInstanceState: Bundle?) {
+         installSplashScreen()
+         setupKoinFragmentFactory()
+diff --git a/app/src/main/java/org/jellyfin/mobile/utils/DuckingAudioFocus.kt b/app/src/main/java/org/jellyfin/mobile/utils/DuckingAudioFocus.kt
+index 23ae16e4..d7b34872 100644
+--- a/app/src/main/java/org/jellyfin/mobile/utils/DuckingAudioFocus.kt
++++ b/app/src/main/java/org/jellyfin/mobile/utils/DuckingAudioFocus.kt
+@@ -5,12 +5,14 @@ import android.media.AudioAttributes
+ import android.media.AudioFocusRequest
+ import android.media.AudioManager
+ import android.os.Build
++import androidx.core.content.ContextCompat
+ import androidx.core.content.getSystemService
+ import androidx.media3.common.Player
+ 
+ /**
+- * Custom audio focus handling: instead of pausing on a transient focus loss (e.g. a phone call),
+- * keep playing at a reduced volume and restore it when focus returns.
++ * Custom audio focus handling: instead of pausing on a transient focus loss, keep playing.
++ * During a phone call playback stays at full volume, so the call doesn't change what you hear and the
++ * media volume (see [isInCall]) controls it; other transient losses (e.g. navigation prompts) duck it.
+  * A permanent focus loss still pauses playback.
+  */
+ class DuckingAudioFocus(
+@@ -21,7 +23,22 @@ class DuckingAudioFocus(
+ 
+     private var focusRequest: AudioFocusRequest? = null
+ 
++    private var hasFocus = true
++
++    // Telecom may hand us focus when playback starts during a call, so also follow the audio mode
++    private val modeListener: AudioManager.OnModeChangedListener? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
++        AudioManager.OnModeChangedListener { applyVolume() }
++    } else {
++        null
++    }
++
++    val isInCall: Boolean
++        get() = audioManager.mode == AudioManager.MODE_IN_CALL
++
+     init {
++        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
++            audioManager.addOnModeChangedListener(ContextCompat.getMainExecutor(context), modeListener!!)
++        }
+         player.addListener(this)
+         if (player.playWhenReady) requestFocus()
+     }
+@@ -32,12 +49,12 @@ class DuckingAudioFocus(
+ 
+     override fun onAudioFocusChange(focusChange: Int) {
+         when (focusChange) {
+-            AudioManager.AUDIOFOCUS_GAIN -> player.volume = 1f
++            AudioManager.AUDIOFOCUS_GAIN -> setHasFocus(true)
+             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK,
+-            -> player.volume = DUCKED_VOLUME
++            -> setHasFocus(false)
+             AudioManager.AUDIOFOCUS_LOSS -> {
+-                player.volume = 1f
++                setHasFocus(true)
+                 player.pause()
+             }
+         }
+@@ -61,8 +78,17 @@ class DuckingAudioFocus(
+             @Suppress("DEPRECATION")
+             audioManager.requestAudioFocus(this, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+         }
+-        // Focus is held by someone else (e.g. a call in progress): play anyway, but quietly
+-        player.volume = if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) 1f else DUCKED_VOLUME
++        // Focus may be held by someone else: play anyway
++        setHasFocus(result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
++    }
++
++    private fun setHasFocus(focus: Boolean) {
++        hasFocus = focus
++        applyVolume()
++    }
++
++    private fun applyVolume() {
++        player.volume = if (hasFocus || isInCall) 1f else DUCKED_VOLUME
+     }
+ 
+     private fun abandonFocus() {
+@@ -72,10 +98,13 @@ class DuckingAudioFocus(
+             @Suppress("DEPRECATION")
+             audioManager.abandonAudioFocus(this)
+         }
+-        player.volume = 1f
++        setHasFocus(true)
+     }
+ 
+     fun release() {
++        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
++            audioManager.removeOnModeChangedListener(modeListener!!)
++        }
+         player.removeListener(this)
+         abandonFocus()
+     }
+-- 
+2.55.0
+

@@ -1,7 +1,7 @@
 From 2d94d366de8f518521775b6b1d7632a07ed2f448 Mon Sep 17 00:00:00 2001
 From: Papa Casper <papacasper@users.noreply.github.com>
 Date: Thu, 8 Oct 2026 18:21:46 -0500
-Subject: [PATCH 3/3] Use .nofocus application ID suffix for release builds too
+Subject: [PATCH 3/4] Use .nofocus application ID suffix for release builds too
 
 ---
  app/build.gradle.kts | 1 +

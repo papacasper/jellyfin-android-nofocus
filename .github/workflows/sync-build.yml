@@ -95,4 +95,4 @@ jobs:
           cp "$apk" "jellyfin-nofocus-$tag.apk"
           gh release create "nofocus-$tag" "jellyfin-nofocus-$tag.apk" \
             --title "Jellyfin $tag (nofocus)" \
-            --notes "Upstream jellyfin-android $tag with video audio focus ducking during calls. Installs as org.jellyfin.mobile.nofocus."
+            --notes "Upstream jellyfin-android $tag where video keeps playing at full volume during calls (volume keys control media volume). Installs as org.jellyfin.mobile.nofocus."
