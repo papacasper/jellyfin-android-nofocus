@@ -5,9 +5,11 @@ import android.content.ComponentName
 import android.content.Intent
 import android.content.ServiceConnection
 import android.graphics.Color
+import android.media.AudioManager
 import android.os.Bundle
 import android.os.IBinder
 import android.provider.Settings
+import android.view.KeyEvent
 import android.view.OrientationEventListener
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -16,6 +18,7 @@ import androidx.activity.addCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.getSystemService
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
@@ -92,6 +95,23 @@ class MainActivity : AppCompatActivity() {
         }
         onBackPressedDispatcher.onBackPressed()
         isEnabled = true // re-enable callback in case activity isn't finished
+    }
+
+    /**
+     * During a phone call the volume keys would change the call volume, so while the player is open they
+     * change the media volume instead (with the system volume UI), which is what playback uses.
+     */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            val playerOpen = supportFragmentManager.findFragmentById(R.id.fragment_container) is PlayerFragment
+            val audioManager: AudioManager = getSystemService()!!
+            if (playerOpen && audioManager.mode == AudioManager.MODE_IN_CALL) {
+                val direction = if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
+                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
+                return true
+            }
+        }
+        return super.onKeyDown(keyCode, event)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

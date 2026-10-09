@@ -5,12 +5,14 @@ import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
+import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
 import androidx.media3.common.Player
 
 /**
- * Custom audio focus handling: instead of pausing on a transient focus loss (e.g. a phone call),
- * keep playing at a reduced volume and restore it when focus returns.
+ * Custom audio focus handling: instead of pausing on a transient focus loss, keep playing.
+ * During a phone call playback stays at full volume, so the call doesn't change what you hear and the
+ * media volume (see [isInCall]) controls it; other transient losses (e.g. navigation prompts) duck it.
  * A permanent focus loss still pauses playback.
  */
 class DuckingAudioFocus(
@@ -21,7 +23,22 @@ class DuckingAudioFocus(
 
     private var focusRequest: AudioFocusRequest? = null
 
+    private var hasFocus = true
+
+    // Telecom may hand us focus when playback starts during a call, so also follow the audio mode
+    private val modeListener: AudioManager.OnModeChangedListener? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        AudioManager.OnModeChangedListener { applyVolume() }
+    } else {
+        null
+    }
+
+    val isInCall: Boolean
+        get() = audioManager.mode == AudioManager.MODE_IN_CALL
+
     init {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            audioManager.addOnModeChangedListener(ContextCompat.getMainExecutor(context), modeListener!!)
+        }
         player.addListener(this)
         if (player.playWhenReady) requestFocus()
     }
@@ -32,12 +49,12 @@ class DuckingAudioFocus(
 
     override fun onAudioFocusChange(focusChange: Int) {
         when (focusChange) {
-            AudioManager.AUDIOFOCUS_GAIN -> player.volume = 1f
+            AudioManager.AUDIOFOCUS_GAIN -> setHasFocus(true)
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK,
-            -> player.volume = DUCKED_VOLUME
+            -> setHasFocus(false)
             AudioManager.AUDIOFOCUS_LOSS -> {
-                player.volume = 1f
+                setHasFocus(true)
                 player.pause()
             }
         }
@@ -61,8 +78,17 @@ class DuckingAudioFocus(
             @Suppress("DEPRECATION")
             audioManager.requestAudioFocus(this, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
         }
-        // Focus is held by someone else (e.g. a call in progress): play anyway, but quietly
-        player.volume = if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) 1f else DUCKED_VOLUME
+        // Focus may be held by someone else: play anyway
+        setHasFocus(result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+    }
+
+    private fun setHasFocus(focus: Boolean) {
+        hasFocus = focus
+        applyVolume()
+    }
+
+    private fun applyVolume() {
+        player.volume = if (hasFocus || isInCall) 1f else DUCKED_VOLUME
     }
 
     private fun abandonFocus() {
@@ -72,10 +98,13 @@ class DuckingAudioFocus(
             @Suppress("DEPRECATION")
             audioManager.abandonAudioFocus(this)
         }
-        player.volume = 1f
+        setHasFocus(true)
     }
 
     fun release() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            audioManager.removeOnModeChangedListener(modeListener!!)
+        }
         player.removeListener(this)
         abandonFocus()
     }
