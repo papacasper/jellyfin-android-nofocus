@@ -32,12 +32,13 @@ fun Project.getVersionName(fallback: String = "0.0.0-dev.1") =
  * 99.99.99-rc.1 -> 99999901
  */
 fun getVersionCode(versionName: String): Int {
-    // nofocus: a trailing "-pN" patch revision makes the code upstream code * 100 + N, so every patch
-    // revision (and every new upstream version) installs as an update
-    val revision = Regex("-p([0-9]+)$").find(versionName)
-    val revisionNumber = revision?.groupValues?.get(1)?.toInt() ?: 0
+    // nofocus: a fourth number is the patch revision (2.7.3.9 = upstream 2.7.3, revision 9). It makes the code
+    // upstream code * 100 + N, so every patch revision (and every new upstream version) installs as an update.
+    // Plain dotted numbers, so Obtainium matches the release tag to the installed version without a regex.
+    val revision = Regex("^([0-9]+[.][0-9]+[.][0-9]+)[.]([0-9]+)$").find(versionName)
+    val revisionNumber = revision?.groupValues?.get(2)?.toInt() ?: 0
     require(revisionNumber in 0..99) { "patch revision must be 0-99" }
-    return getUpstreamVersionCode(versionName.removeSuffix(revision?.value.orEmpty())) * 100 + revisionNumber
+    return getUpstreamVersionCode(revision?.groupValues?.get(1) ?: versionName) * 100 + revisionNumber
 }
 
 private fun getUpstreamVersionCode(versionName: String): Int {
