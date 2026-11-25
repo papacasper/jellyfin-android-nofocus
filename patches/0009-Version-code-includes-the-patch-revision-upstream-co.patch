@@ -1,8 +1,8 @@
 From a1a7e8c9b9ce0a383d02be00524a85352bcfb7f0 Mon Sep 17 00:00:00 2001
 From: Papa Casper <papacasper@users.noreply.github.com>
 Date: Wed, 25 Nov 2026 05:35:16 -0600
-Subject: [PATCH 9/9] Version code includes the patch revision (upstream code *
- 100 + N)
+Subject: [PATCH 09/10] Version code includes the patch revision (upstream code
+ * 100 + N)
 
 ---
  buildSrc/src/main/kotlin/VersionUtils.kt | 9 +++++++++
