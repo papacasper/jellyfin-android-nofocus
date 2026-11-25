@@ -8,6 +8,7 @@ import android.media.AudioManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
+import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 
@@ -19,6 +20,11 @@ import androidx.media3.exoplayer.ExoPlayer
  *
  * While the call uses the earpiece, playback is routed to the speaker, since media would otherwise follow
  * the call to the earpiece and become barely audible.
+ *
+ * Android's audio policy also caps media (USAGE_MEDIA) during a call at the call volume, so volume keys can't
+ * raise it. Accessibility audio is exempt from that cap and follows the media volume (STREAM_ACCESSIBILITY is
+ * aliased to STREAM_MUSIC unless an accessibility service asks for a separate volume), so during a call playback
+ * switches to USAGE_ASSISTANCE_ACCESSIBILITY and back afterwards: it sounds the same as without a call.
  */
 class DuckingAudioFocus(
     context: Context,
@@ -30,12 +36,16 @@ class DuckingAudioFocus(
 
     private var hasFocus = true
 
+    // Usage the player was built with (applyDefaultAudioAttributes)
+    private var usage = C.USAGE_MEDIA
+
     // Telecom may hand us focus when playback starts during a call, so also follow the audio mode
     private val modeListener: AudioManager.OnModeChangedListener? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         AudioManager.OnModeChangedListener {
             // Focus refused during a call is never handed back on its own: ask again once the call ends,
             // otherwise playback stays ducked
             if (!isInCall && !hasFocus && player.playWhenReady) requestFocus() else applyVolume()
+            applyUsage()
             applyRoute()
         }
     } else {
@@ -58,6 +68,7 @@ class DuckingAudioFocus(
             audioManager.addOnModeChangedListener(executor, modeListener!!)
             audioManager.addOnCommunicationDeviceChangedListener(executor, communicationDeviceListener!!)
         }
+        applyUsage()
         applyRoute()
         player.addListener(this)
         if (player.playWhenReady) requestFocus()
@@ -110,6 +121,17 @@ class DuckingAudioFocus(
 
     private fun applyVolume() {
         player.volume = if (hasFocus || isInCall) 1f else DUCKED_VOLUME
+    }
+
+    private fun applyUsage() {
+        val wanted = if (isInCall) C.USAGE_ASSISTANCE_ACCESSIBILITY else C.USAGE_MEDIA
+        if (wanted == usage) return // changing attributes recreates the AudioTrack: only do it on a real change
+        usage = wanted
+        val attributes = androidx.media3.common.AudioAttributes.Builder()
+            .setUsage(wanted)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+            .build()
+        player.setAudioAttributes(attributes, false)
     }
 
     private fun applyRoute() {
