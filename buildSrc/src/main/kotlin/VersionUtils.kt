@@ -32,6 +32,15 @@ fun Project.getVersionName(fallback: String = "0.0.0-dev.1") =
  * 99.99.99-rc.1 -> 99999901
  */
 fun getVersionCode(versionName: String): Int {
+    // nofocus: a trailing "-pN" patch revision makes the code upstream code * 100 + N, so every patch
+    // revision (and every new upstream version) installs as an update
+    val revision = Regex("-p([0-9]+)$").find(versionName)
+    val revisionNumber = revision?.groupValues?.get(1)?.toInt() ?: 0
+    require(revisionNumber in 0..99) { "patch revision must be 0-99" }
+    return getUpstreamVersionCode(versionName.removeSuffix(revision?.value.orEmpty())) * 100 + revisionNumber
+}
+
+private fun getUpstreamVersionCode(versionName: String): Int {
     // Split to core and pre release parts with a default for pre release (null)
     val (versionCore, versionPreRelease) =
         when (val index = versionName.indexOf('-')) {
