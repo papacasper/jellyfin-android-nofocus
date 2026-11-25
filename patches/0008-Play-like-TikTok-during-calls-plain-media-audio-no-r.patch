@@ -1,7 +1,7 @@
 From 2fc7a03fe12d42388d69201f2e31779c36e58a69 Mon Sep 17 00:00:00 2001
 From: Papa Casper <papacasper@users.noreply.github.com>
 Date: Wed, 25 Nov 2026 05:30:26 -0600
-Subject: [PATCH 8/8] Play like TikTok during calls: plain media audio, no
+Subject: [PATCH 8/9] Play like TikTok during calls: plain media audio, no
  rerouting or usage switching
 
 ---

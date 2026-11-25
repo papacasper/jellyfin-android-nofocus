@@ -1,7 +1,7 @@
 From 9c4c2c6e4ffaa5b0f1ee522c3a9303741cbfbd97 Mon Sep 17 00:00:00 2001
 From: Papa Casper <papacasper@users.noreply.github.com>
 Date: Wed, 25 Nov 2026 05:01:11 -0600
-Subject: [PATCH 5/8] Fix quiet playback during calls: VoIP calls, earpiece
+Subject: [PATCH 5/9] Fix quiet playback during calls: VoIP calls, earpiece
  routing, refocus after call
 
 ---
