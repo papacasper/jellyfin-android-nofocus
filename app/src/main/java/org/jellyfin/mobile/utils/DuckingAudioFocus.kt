@@ -2,22 +2,27 @@ package org.jellyfin.mobile.utils
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
 import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 
 /**
  * Custom audio focus handling: instead of pausing on a transient focus loss, keep playing.
  * During a phone call playback stays at full volume, so the call doesn't change what you hear and the
- * media volume (see [isInCall]) controls it; other transient losses (e.g. navigation prompts) duck it.
+ * media volume controls it (see [isInCall]); other transient losses (e.g. navigation prompts) duck it.
  * A permanent focus loss still pauses playback.
+ *
+ * While the call uses the earpiece, playback is routed to the speaker, since media would otherwise follow
+ * the call to the earpiece and become barely audible.
  */
 class DuckingAudioFocus(
     context: Context,
-    private val player: Player,
+    private val player: ExoPlayer,
 ) : AudioManager.OnAudioFocusChangeListener, Player.Listener {
     private val audioManager: AudioManager = context.getSystemService()!!
 
@@ -27,18 +32,33 @@ class DuckingAudioFocus(
 
     // Telecom may hand us focus when playback starts during a call, so also follow the audio mode
     private val modeListener: AudioManager.OnModeChangedListener? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        AudioManager.OnModeChangedListener { applyVolume() }
+        AudioManager.OnModeChangedListener {
+            // Focus refused during a call is never handed back on its own: ask again once the call ends,
+            // otherwise playback stays ducked
+            if (!isInCall && !hasFocus && player.playWhenReady) requestFocus() else applyVolume()
+            applyRoute()
+        }
     } else {
         null
     }
 
-    val isInCall: Boolean
-        get() = audioManager.mode == AudioManager.MODE_IN_CALL
+    private val communicationDeviceListener: AudioManager.OnCommunicationDeviceChangedListener? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            AudioManager.OnCommunicationDeviceChangedListener { applyRoute() }
+        } else {
+            null
+        }
+
+    private val isInCall: Boolean
+        get() = audioManager.isInCall
 
     init {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            audioManager.addOnModeChangedListener(ContextCompat.getMainExecutor(context), modeListener!!)
+            val executor = ContextCompat.getMainExecutor(context)
+            audioManager.addOnModeChangedListener(executor, modeListener!!)
+            audioManager.addOnCommunicationDeviceChangedListener(executor, communicationDeviceListener!!)
         }
+        applyRoute()
         player.addListener(this)
         if (player.playWhenReady) requestFocus()
     }
@@ -71,6 +91,7 @@ class DuckingAudioFocus(
                 )
                 .setOnAudioFocusChangeListener(this)
                 .setWillPauseWhenDucked(false)
+                .setAcceptsDelayedFocusGain(true)
                 .build()
                 .also { focusRequest = it }
             audioManager.requestAudioFocus(request)
@@ -91,6 +112,18 @@ class DuckingAudioFocus(
         player.volume = if (hasFocus || isInCall) 1f else DUCKED_VOLUME
     }
 
+    private fun applyRoute() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        val onEarpiece = isInCall && audioManager.communicationDevice?.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+        val speaker = if (onEarpiece) {
+            audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                .firstOrNull { device -> device.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+        } else {
+            null
+        }
+        player.setPreferredAudioDevice(speaker)
+    }
+
     private fun abandonFocus() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             focusRequest?.let(audioManager::abandonAudioFocusRequest)
@@ -104,6 +137,7 @@ class DuckingAudioFocus(
     fun release() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             audioManager.removeOnModeChangedListener(modeListener!!)
+            audioManager.removeOnCommunicationDeviceChangedListener(communicationDeviceListener!!)
         }
         player.removeListener(this)
         abandonFocus()
@@ -113,3 +147,7 @@ class DuckingAudioFocus(
         const val DUCKED_VOLUME = 0.25f
     }
 }
+
+/** True during a phone call or a VoIP call (e.g. Discord, WhatsApp). */
+val AudioManager.isInCall: Boolean
+    get() = mode == AudioManager.MODE_IN_CALL || mode == AudioManager.MODE_IN_COMMUNICATION

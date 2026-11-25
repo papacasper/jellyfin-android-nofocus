@@ -37,6 +37,7 @@ import org.jellyfin.mobile.utils.Constants
 import org.jellyfin.mobile.utils.PermissionRequestHelper
 import org.jellyfin.mobile.utils.SmartOrientationListener
 import org.jellyfin.mobile.utils.extensions.replaceFragment
+import org.jellyfin.mobile.utils.isInCall
 import org.jellyfin.mobile.utils.isWebViewSupported
 import org.jellyfin.mobile.webapp.RemotePlayerService
 import org.jellyfin.mobile.webapp.WebViewFragment
@@ -98,14 +99,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * During a phone call the volume keys would change the call volume, so while the player is open they
+     * During a phone or VoIP call the volume keys would change the call volume, so while the player is open they
      * change the media volume instead (with the system volume UI), which is what playback uses.
      */
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
             val playerOpen = supportFragmentManager.findFragmentById(R.id.fragment_container) is PlayerFragment
             val audioManager: AudioManager = getSystemService()!!
-            if (playerOpen && audioManager.mode == AudioManager.MODE_IN_CALL) {
+            if (playerOpen && audioManager.isInCall) {
                 val direction = if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
                 audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
                 return true
