@@ -1,0 +1,40 @@
+From 9ecca9b44b92aadde26031bc1a4485a0a1e6f0ee Mon Sep 17 00:00:00 2001
+From: Papa Casper <papacasper@users.noreply.github.com>
+Date: Wed, 25 Nov 2026 05:13:47 -0600
+Subject: [PATCH 7/7] Use assistant usage during calls so volume keys still
+ control playback
+
+---
+ .../java/org/jellyfin/mobile/utils/DuckingAudioFocus.kt  | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/app/src/main/java/org/jellyfin/mobile/utils/DuckingAudioFocus.kt b/app/src/main/java/org/jellyfin/mobile/utils/DuckingAudioFocus.kt
+index 79435ced..cc60eeba 100644
+--- a/app/src/main/java/org/jellyfin/mobile/utils/DuckingAudioFocus.kt
++++ b/app/src/main/java/org/jellyfin/mobile/utils/DuckingAudioFocus.kt
+@@ -22,9 +22,10 @@ import androidx.media3.exoplayer.ExoPlayer
+  * the call to the earpiece and become barely audible.
+  *
+  * Android's audio policy also caps media (USAGE_MEDIA) during a call at the call volume, so volume keys can't
+- * raise it. Accessibility audio is exempt from that cap and follows the media volume (STREAM_ACCESSIBILITY is
+- * aliased to STREAM_MUSIC unless an accessibility service asks for a separate volume), so during a call playback
+- * switches to USAGE_ASSISTANCE_ACCESSIBILITY and back afterwards: it sounds the same as without a call.
++ * raise it. Assistant audio is exempt from that cap (its own volume group), is always aliased to the media
++ * volume (STREAM_ASSISTANT -> STREAM_MUSIC) and is routed like media, so during a call playback switches to
++ * USAGE_ASSISTANT and back afterwards: it sounds the same as without a call. (Accessibility audio is also exempt,
++ * but can have an independent volume that apps can't change, which left the volume keys without effect.)
+  */
+ class DuckingAudioFocus(
+     context: Context,
+@@ -124,7 +125,7 @@ class DuckingAudioFocus(
+     }
+ 
+     private fun applyUsage() {
+-        val wanted = if (isInCall) C.USAGE_ASSISTANCE_ACCESSIBILITY else C.USAGE_MEDIA
++        val wanted = if (isInCall) C.USAGE_ASSISTANT else C.USAGE_MEDIA
+         if (wanted == usage) return // changing attributes recreates the AudioTrack: only do it on a real change
+         usage = wanted
+         val attributes = androidx.media3.common.AudioAttributes.Builder()
+-- 
+2.56.0
+

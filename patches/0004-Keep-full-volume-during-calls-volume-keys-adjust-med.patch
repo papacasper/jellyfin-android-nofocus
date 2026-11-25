@@ -1,7 +1,7 @@
 From 01de9830113356deefc5303491186f068d4119b3 Mon Sep 17 00:00:00 2001
 From: Papa Casper <papacasper@users.noreply.github.com>
 Date: Fri, 9 Oct 2026 08:06:00 -0500
-Subject: [PATCH 4/6] Keep full volume during calls; volume keys adjust media
+Subject: [PATCH 4/7] Keep full volume during calls; volume keys adjust media
  volume with system UI
 
 ---
